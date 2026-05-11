@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Pod
+
+metadata:
+  name: lgilpin-clevr-debug
+
+spec:
+  restartPolicy: Never
+
+  containers:
+  - name: clevr
+
+    image: pytorch/pytorch:0.4.1-cuda9-cudnn7-devel
+
+    # Keep pod alive for interactive debugging
+    command: ["tail", "-f", "/dev/null"]
+
+    stdin: true
+    tty: true
+
+    resources:
+      requests:
+        cpu: "4"
+        memory: "24Gi"
+        nvidia.com/gpu: "1"
+
+      limits:
+        cpu: "4"
+        memory: "24Gi"
+        nvidia.com/gpu: "1"
+
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+
+    - name: dshm
+      mountPath: /dev/shm
+
+  volumes:
+  - name: workspace
+    persistentVolumeClaim:
+      claimName: lgilpin-clevr-pvc
+
+  - name: dshm
+    emptyDir:
+      medium: Memory
+      sizeLimit: 8Gi
