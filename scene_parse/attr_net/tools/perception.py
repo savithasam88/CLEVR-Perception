@@ -744,8 +744,8 @@ def main(args):
             print('Proposal file path:', proposal_file)
             output_file = output_path / f"{video_id}.json"
             #pass video_dir + the path to json file where proposals would be saved
-            #create_object_proposals_frames(folder, proposal_file)
-            #pass to attribute_detection : video_directory having frames, the file with object proposals ffrom create_object_proposals_frames() and the path to output dir where scene graphs for frames would be saved in a single json and path to chckpoint
+            create_object_proposals_frames(folder, proposal_file)
+            #pass to attribute_detection : video_directory having frames, the file with object proposals ffrom create_object_proposals_frames() and the path to output json file where scene graphs for frames would be saved and path to chckpoint
             attribute_detection(folder, proposal_file, output_file, checkpoint_model)
         break #I am only testing on one clevrer video for now.
 
