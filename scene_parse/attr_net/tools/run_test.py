@@ -1,6 +1,7 @@
 import os
 import json
 
+
 from options import get_options
 from datasets import get_dataloader
 from model import get_model
@@ -27,7 +28,7 @@ def attribute_detection():
     }
     
     opt = get_options('test')
-    test_loader = get_dataloader(opt, 'test')
+    test_loader = get_dataloader(opt, 'test') #test
     model = get_model(opt)
 
     if opt.use_cat_label:
@@ -46,12 +47,13 @@ def attribute_detection():
         model.set_input(data)
         model.forward()
         pred = model.get_pred()
-       
+        print('Predicted')       
         for i in range(pred.shape[0]):
             if opt.dataset == 'clevr':
                 img_id = idxs[i]
                 obj = utils.get_attrs_clevr(pred[i])
                 obj_gnd = utils.get_attrs_clevr(labels[i])
+                print('Obj_pred:', obj, 'Obj_gnd:', obj_gnd)
                 for key in ['shape', 'size', 'material', 'color']:
                     if obj[key] == obj_gnd[key]:
                         attr_correct[key] += 1
@@ -81,3 +83,10 @@ def attribute_detection():
     with open(opt.output_path, 'w') as fout:
         json.dump(output, fout)
     return opt.output_path
+
+
+def main():
+    attribute_detection()
+
+if __name__ == "__main__":
+    main()

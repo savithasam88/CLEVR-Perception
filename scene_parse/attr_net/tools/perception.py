@@ -19,8 +19,16 @@ import requests
 import numpy as np
 from transformers import AutoModelForMaskGeneration, AutoProcessor, pipeline
 from utils import load_clevr_scenes, get_feat_vec_clevr
-from run_test import attribute_detection
+#from run_test import attribute_detection
 from scipy.spatial.distance import cdist
+import pickle
+
+import os
+
+from options import get_options
+from datasets import get_dataloader
+from model import get_model
+import utils
 
 REGIONS = {
     "0": {"x": [0, 240], "y": [0, 160]}, 
@@ -28,8 +36,6 @@ REGIONS = {
     "2": {"x": [0, 240], "y": [160, 320]},
     "3": {"x": [240, 480], "y": [160, 320]}
     }
-
-scenes = load_clevr_scenes("/users/sbsh670/data/clevr/CLEVR_v1.0/scenes/CLEVR_val_scenes.json")
 
 @dataclass
 class BoundingBox:
@@ -288,8 +294,10 @@ def find_match(bbdet, GT_Obj_feat, Object_pixels):
     return GT_Obj_feat[closest_idx]
 
 
+# batching might work with DINO but may not work for SAM as number of bboxes or objects per image vary across images.
+'''
 def create_object_proposals():
-
+    batch_size = 8
     detector_id = "IDEA-Research/grounding-dino-tiny"
     segmenter_id = "facebook/sam-vit-base"
     detector, segmentator, processor = create_pipeline_and_processor(detector_id, segmenter_id)
@@ -297,14 +305,47 @@ def create_object_proposals():
     labels = ['sphere .', 'cube .', 'cylinder .']
     threshold = 0.3
          
-    data_loc = "/users/sbsh670/data/clevr/CLEVR_v1.0/images/val/"
+    data_loc = "/users/sbsh670/data/clevr/CLEVR_v1.0/image_generative_model_training/images/train/" #"/users/sbsh670/data/clevr/CLEVR_v1.0/images/val/"
+    
+    for start in range(0, min(1000, len(scenes)), batch_size):
+        batch_scenes = scenes[start:start+batch_size]
+        image_urls = [data_loc + s['filename']
+        for s in batch_scenes
+    ]
+    batch_image_array, batch_detections = grounded_segmentation(
+        image=image_urls,          # list instead of single image
+        labels=labels,
+        threshold=threshold,
+        polygon_refinement=True,
+        detector=detector,
+        segmentator=segmentator,
+        processor=processor
+    )
+
+    for s, image_url, detections in zip(
+            batch_scenes,
+            image_urls,
+            batch_detections):
+'''
+#return object proposals for clevr scenes from original CLEVR dataset
+def create_object_proposals():
+
+    scenes = load_clevr_scenes("/users/sbsh670/data/clevr/CLEVR_v1.0/scenes/CLEVR_train_scenes.json")
+    detector_id = "IDEA-Research/grounding-dino-tiny"
+    segmenter_id = "facebook/sam-vit-base"
+    detector, segmentator, processor = create_pipeline_and_processor(detector_id, segmenter_id)
+    shapes = ['sphere', 'cube', 'cylinder']
+    labels = ['sphere .', 'cube .', 'cylinder .']
+    threshold = 0.3
+         
+    data_loc = "/users/sbsh670/data/clevr/CLEVR_v1.0/image_generative_model_training/images/train/" #"/users/sbsh670/data/clevr/CLEVR_v1.0/images/val/"
     img_anns = []
     count = 0
     
         
     for i,s in enumerate(scenes):
        
-        if count>=20000:
+        if count>=100:
             break
         count = count+1
         
@@ -403,7 +444,18 @@ def create_object_proposals():
         scene_graph = {"image_id": image_url, "objects": obj_anns}
         
         img_anns.append(obj_anns)
+        if count%20 == 0:
+            with open("/users/sbsh670/ns-vqa/data/attr_net/objects/img_anns.pkl", "wb") as f:
+                pickle.dump(img_anns, f)
+            print('Saved checkpoint at image {count}')
+        print('Appended for: ', image_url)
 
+    
+    with open("/users/sbsh670/ns-vqa/data/attr_net/objects/img_anns.pkl", "wb") as f:
+        pickle.dump(img_anns, f)
+
+    print("Final save completed")
+    
     all_objs = [obj_ann for img_ann in img_anns for obj_ann in img_ann]
 
     obj_masks = [o['mask'] for o in all_objs]
@@ -422,17 +474,280 @@ def create_object_proposals():
         'scores': scores,
     }
     
-    proposal_path = '/users/sbsh670/ns-vqa/data/attr_net/objects/clevr_vals_objs_pretrained.json'
+    proposal_path = '/users/sbsh670/ns-vqa/data/attr_net/objects/clevr_train_objs_pretrained.json'
+    print('| saving object annotations to %s' %proposal_path)
+    with open(proposal_path, 'w') as fout:
+        json.dump(output, fout)
+
+def attribute_detection(img_dir, proposal_file, output_path, checkpoint_path):
+    attr_correct = {
+    'shape': 0,
+    'size': 0,
+    'material': 0,
+    'color': 0
+    }
+
+    attr_total = {
+    'shape': 0,
+    'size': 0,
+    'material': 0,
+    'color': 0
+    }
+    
+    opt = get_options('test')
+    opt.clevr_val_ann_path = proposal_file
+    opt.dataset = 'clevrer'
+    opt.clevr_val_img_dir = img_dir
+    opt.load_checkpoint_path = checkpoint_path   
+    opt.output_path = output_path
+    
+    test_loader = get_dataloader(opt, 'test') #test
+    model = get_model(opt)
+
+    if opt.use_cat_label:
+        with open(COMP_CAT_DICT_PATH) as f:
+            cat_dict = utils.invert_dict(json.load(f))
+
+    if opt.dataset == 'clevr':
+        scenes = [{
+        'image_index': i,
+        'image_filename': 'CLEVR_val_%06d.png' % i,
+        'objects': []
+        } for i in range(15000)]
+   
+    if opt.dataset == 'clevrer':
+        scenes = [{
+        'image_index': i,
+        'image_filename': '%06d.jpg' % i,
+        'objects': []
+        } for i in range(15000)]
+
+    count = 0
+    for data, labels, idxs, cat_idxs in test_loader:
+        model.set_input(data)
+        model.forward()
+        pred = model.get_pred()
+        print('Predicted')       
+        for i in range(pred.shape[0]):
+            if opt.dataset == 'clevr' or opt.dataset =='clevrer':
+                img_id = idxs[i]
+                obj = utils.get_attrs_clevr(pred[i])
+                #obj_gnd = utils.get_attrs_clevr(labels[i]) #feature vector for ground truth is empty
+                #print('Obj_pred:', obj)
+                #for key in ['shape', 'size', 'material', 'color']:
+                #    if obj[key] == obj_gnd[key]:
+                #        attr_correct[key] += 1
+                #    attr_total[key] += 1
+                
+                    
+                if opt.use_cat_label:
+                    cid = cat_idxs[i] if isinstance(cat_idxs[i], int) else cat_idxs[i].item()
+                    obj['color'], obj['material'], obj['shape'] = cat_dict[cid].split(' ')
+            
+            scenes[int(img_id)]['objects'].append(obj)
+        count += idxs.size(0)
+        print('%d / %d objects processed' % (count, len(test_loader.dataset)))
+
+    output = {  
+        'info': '%s derendered scene' % opt.dataset,
+        'scenes': scenes,
+    }
+    print('| saving annotation file to %s' % opt.output_path)
+    utils.mkdirs(os.path.dirname(opt.output_path))
+    
+    #for key in attr_correct:
+    #    acc = attr_correct[key] / attr_total[key] if attr_total[key] > 0 else 0
+    #    print(f'{key} accuracy: {acc:.4f}')
+    #total_correct = sum(attr_correct.values())
+    #total_attrs = sum(attr_total.values())
+
+    #print(f'Overall attribute accuracy: {total_correct / total_attrs:.4f}')
+    with open(output_path, 'w') as fout:
+        json.dump(output, fout)
+    
+
+
+
+    
+#return object proposals for clevr scenes from original CLEVR dataset
+def create_object_proposals_frames(video_path, proposal_path):
+
+    detector_id = "IDEA-Research/grounding-dino-tiny"
+    segmenter_id = "facebook/sam-vit-base"
+    detector, segmentator, processor = create_pipeline_and_processor(detector_id, segmenter_id)
+    shapes = ['sphere', 'cube', 'cylinder']
+    labels = ['sphere .', 'cube .', 'cylinder .']
+    threshold = 0.3
+         
+    data_loc = video_path 
+    img_anns = []
+    count = 0
+    
+    for frame in sorted(video_path.glob("*.jpg")):  
+    #for i,s in enumerate(scenes):
+       
+        print('Processing frame:', frame)
+        count = count+1
+        
+        #image_url = data_loc+ s['filename'] #"CLEVR_val_000000.png"
+        image_idx = frame.stem #s['image_idx']
+        
+       
+        #no ground truth scene graph available
+        #GT_Obj_feat = {}
+        #Obj_pixel = {}
+        #o_id = 0
+        #for o in scenes[i]['objects']:
+        #    GT_Obj_feat [o_id] = get_feat_vec_clevr(o)
+        #    Obj_pixel[o_id] = o['pixel_coords']
+        #    o_id = o_id + 1
+
+        
+        image_array, detections = grounded_segmentation(
+        image=str(frame),
+        labels=labels,
+        threshold=threshold,
+        polygon_refinement=True,
+        detector=detector,           
+        segmentator=segmentator,     
+        processor=processor)
+        
+        bboxes = []
+    
+        for idx, detection in enumerate(detections):
+            present = False
+            p_s = 0
+            p_b = None
+            box = detection.box
+            score = detection.score
+            for bb_score in bboxes:
+                bb = bb_score[0]
+                if bbox_iou(bb, box)> 0.2:
+                    p_s = bb_score[1]
+                    p_b = bb
+                    idx_rem =  bb_score[2]
+                    present = True
+                    break
+        
+            if present:
+                if p_s>=score:
+                    continue 
+                else:
+                    bboxes.remove((p_b, p_s, idx_rem))
+
+            bboxes.append((box,score, idx))       
+
+        idx_interested = []
+        for bb in bboxes:
+            idx_interested.append(bb[2])
+
+    
+        obj_anns = []    
+    
+        for idx, detection in enumerate(detections):
+            if idx not in idx_interested:
+                continue
+        
+            label = detection.label
+            c = labels.index(label)
+            box = detection.box
+            score = detection.score
+            mask = detection.mask
+
+            min_x = box.xmin
+            min_y = box.ymin
+            max_x = box.xmax
+            max_y = box.ymax
+        
+            
+            #Calculate region classification based on bounding box center
+            bbox_center_x = (min_x + max_x) / 2
+            bbox_center_y = (min_y + max_y) / 2
+            bbdet = []
+            bbdet.append(bbox_center_x)
+            bbdet.append(bbox_center_y)
+
+            
+            obj_ann = {
+                                    'mask': mask.tolist(),
+                                    'category_idx': c,
+                                    'image_idx': image_idx,
+                                    'score': score,
+                         }
+            obj_anns.append(obj_ann)
+
+                
+        
+        
+        img_anns.append(obj_anns)
+        if count%20 == 0:
+            with open("/users/sbsh670/ns-vqa/data/attr_net/objects/clevrer_img_anns.pkl", "wb") as f:
+                pickle.dump(img_anns, f)
+            print('Saved checkpoint at image {count}')
+        print('Appended for: ', video_path, image_idx)
+
+    
+    with open("/users/sbsh670/ns-vqa/data/attr_net/objects/clevrer_img_anns.pkl", "wb") as f:
+        pickle.dump(img_anns, f)
+
+    print("Final save completed")
+    
+    all_objs = [obj_ann for img_ann in img_anns for obj_ann in img_ann]
+
+    obj_masks = [o['mask'] for o in all_objs]
+    img_ids = [o['image_idx'] for o in all_objs]
+    cat_ids = [o['category_idx'] for o in all_objs]
+    scores = [o['score'] for o in all_objs]
+    feat_vecs = [] #as we do not have gt scene graph
+    output = {
+        'object_masks': obj_masks,
+        'image_idxs': img_ids,
+        'category_idxs': cat_ids,
+        'feature_vectors': feat_vecs,
+        'scores': scores,
+    }
+    
+    #proposal_path = '/users/sbsh670/ns-vqa/data/attr_net/objects/clevr_train_objs_pretrained.json'
     print('| saving object annotations to %s' %proposal_path)
     with open(proposal_path, 'w') as fout:
         json.dump(output, fout)
 
 
-    
 
 def main(args):
-    create_object_proposals()
+    
+    #--------------------------------
+    #for clevr train images
+    #create_object_proposals(folder)
     #attribute_detection()
+    #------------------------------
+    
+    #processing for clevrer videos
+    
+    #path to clevrer videos
+    clevrer_videos_path = Path('/users/sbsh670/data/data/eval_video/MVBench/video_14400frames_fps1/clevrer/clevrer/video_validation')
+
+    #path where the object proposal json file from create_object_proposals_frames() would be saved
+    proposal_path = Path('/users/sbsh670/ns-vqa/data/attr_net/objects/clevrer')
+    
+    #path where attribute network output - that is the scene graphs (named as video_id.json) are saved
+    output_path = Path('/users/sbsh670/ns-vqa/data/attr_net/results/clevrer')
+    
+    #path to attribute detection model (pretrained on clevr)
+    checkpoint_model = '/users/sbsh670/ns-vqa/data/pretrained/attribute_net.pt'
+    
+    for folder in sorted(clevrer_videos_path.glob("video_*")):
+        if folder.is_dir():
+            video_id = folder.name
+            print('Video_id:', video_id)
+            proposal_file = proposal_path / f"{video_id}_objs_proposals.json"
+            print('Proposal file path:', proposal_file)
+            output_file = output_path / f"{video_id}.json"
+            #pass video_dir + the path to json file where proposals would be saved
+            #create_object_proposals_frames(folder, proposal_file)
+            #pass to attribute_detection : video_directory having frames, the file with object proposals ffrom create_object_proposals_frames() and the path to output dir where scene graphs for frames would be saved in a single json and path to chckpoint
+            attribute_detection(folder, proposal_file, output_file, checkpoint_model)
+        break #I am only testing on one clevrer video for now.
 
 if __name__ == "__main__":
     main(None)

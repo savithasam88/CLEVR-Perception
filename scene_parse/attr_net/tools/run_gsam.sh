@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -D /users/sbsh670/ns-vqa/scene_parse/attr_net/tools   # Working directory
+#SBATCH -D /users/sbsh670/CLEVR-perception/scene_parse/attr_net/tools   # Working directory
 #SBATCH --job-name perception                      # Job name
 #SBATCH --partition=gpu-a100                          # Select the correct partition.
 #SBATCH --nodes=1                                  # Run on 1 nodes (each node has 48 cores)
@@ -39,4 +39,4 @@ unset __conda_setup
 conda init bash
 conda activate clevr-poc
 #Run your script.
-python perception.py
+python perception.py 

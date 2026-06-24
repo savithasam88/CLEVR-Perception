@@ -11,7 +11,7 @@ import pycocotools.mask as mask_util
 
 class ClevrObjectDataset(Dataset):
 
-    def __init__(self, obj_ann_path, img_dir, split, 
+    def __init__(self, dataset, obj_ann_path, img_dir, split, 
                  min_img_id=None, max_img_id=None, concat_img=True):
         with open(obj_ann_path) as f:
             anns = json.load(f)
@@ -22,10 +22,12 @@ class ClevrObjectDataset(Dataset):
             while anns['image_idxs'][min_id] < min_img_id:
                 min_id += 1
         max_id = len(anns['image_idxs'])
+        
         if max_img_id is not None:
             while max_id > 0 and anns['image_idxs'][max_id - 1] >= max_img_id:
                 max_id -= 1
 
+        self.dataset = dataset
         self.obj_masks = anns['object_masks'][min_id: max_id]
         self.img_ids = anns['image_idxs'][min_id: max_id]
         self.cat_ids = anns['category_idxs'][min_id: max_id]
@@ -37,7 +39,7 @@ class ClevrObjectDataset(Dataset):
         self.img_dir = img_dir
         self.split = split
         self.concat_img = concat_img
-
+        
         transform_list = [transforms.ToTensor()]
         self._transform = transforms.Compose(transform_list)
         
@@ -45,14 +47,18 @@ class ClevrObjectDataset(Dataset):
         return len(self.img_ids)
 
     def __getitem__(self, idx):
-        img_name = 'CLEVR_%s_%06d.png' % (self.split, self.img_ids[idx])
+        
+        if self.dataset == 'clevr':
+            img_name = 'CLEVR_%s_%06d.png' % (self.split, self.img_ids[idx])
+        elif self.dataset == 'clevrer':
+            img_name = f"{self.img_ids[idx]}.jpg"
         img = cv2.imread(os.path.join(self.img_dir, img_name), cv2.IMREAD_COLOR)
         img = self._transform(img)
 
         label = -1
         if self.feat_vecs is not None:
             label = torch.Tensor(self.feat_vecs[idx])
-        img_id = self.img_ids[idx]
+        img_id = int(self.img_ids[idx])
         cat_id = self.cat_ids[idx]
         mask = torch.Tensor(self.obj_masks[idx])
         #mask = torch.Tensor(mask_util.decode(self.obj_masks[idx]))
@@ -71,5 +77,4 @@ class ClevrObjectDataset(Dataset):
         else:
             data = img.clone().resize_(3, 224, 224).fill_(0)
             data[:, 38:187, :] = transforms.Compose(transform_list)(seg)
-
         return data, label, img_id, cat_id

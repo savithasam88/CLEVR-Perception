@@ -12,7 +12,7 @@ class BaseOptions():
         
     def initialize(self):
         self.parser.add_argument('--run_dir', default='scratch/test_run', type=str, help='experiment directory')
-        self.parser.add_argument('--dataset', default='clevr', type=str, help='dataset')
+        self.parser.add_argument('--dataset', default='clevrer', type=str, help='dataset')
         self.parser.add_argument('--load_checkpoint_path', default=None, type=str, help='load checkpoint path')
         self.parser.add_argument('--gpu_ids', default='0', type=str, help='ids of gpu to be used')
 
@@ -81,18 +81,22 @@ class TestOptions(BaseOptions):
     def initialize(self):
         BaseOptions.initialize(self)
         self.parser.add_argument('--split', default='val')
-        self.parser.add_argument('--output_path', default='/users/sbsh670/ns-vqa/data/attr_net/results/scene_graphs.json', type=str, help='save path for derendered scene annotation')
-        self.parser.add_argument('--clevr_val_ann_path', default='/users/sbsh670/ns-vqa/data/attr_net/objects/clevr_vals_objs_pretrained.json', type=str, help='clevr val objects annotation file')
-        self.parser.add_argument('--clevr_val_img_dir', default='/users/sbsh670/data/clevr/CLEVR_v1.0/images/val', type=str, help='clevr val image directory')
+        self.parser.add_argument('--output_path', default='/users/sbsh670/ns-vqa/data/attr_net/results/clevrer_frame_graphs', type=str, help='save path for derendered scene annotation')
+        self.parser.add_argument('--clevr_val_ann_path', default='/users/sbsh670/ns-vqa/data/attr_net/objects/clevrer_val_objs_proposals.json', type=str, help='clevr val objects annotation file')
+        self.parser.add_argument('--clevr_val_img_dir', default='/users/sbsh670/data/data/eval_video/MVBench/video_14400frames_fps1/clevrer/clevrer/video_validation', type=str, help='clevr val image directory')
         self.parser.add_argument('--shuffle_data', default=0, type=int, help='shuffle dataloader')
         self.parser.add_argument('--use_cat_label', default=0, type=int, help='use object detector class label')
         self.is_train = False
 
+        
+        
 def get_options(mode):
     if mode == 'train':
         opt = TrainOptions().parse()
     elif mode == 'test':
         opt = TestOptions().parse()
+        opt.dataset = 'clevrer'
+
     else:
         raise ValueError('Invalid mode for option parsing: %s' % mode)
     return opt
