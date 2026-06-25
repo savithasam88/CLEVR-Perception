@@ -1,0 +1,9 @@
+numpy==1.19.5
+scipy
+h5py
+matplotlib
+pillow
+scikit-image
+opencv-python-headless==4.2.0.32
+pyyaml
+tqdm
