@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Pod
 
 metadata:
-  name: lgilpin-clevr-debug
+  name: YOUR_INITIAL_LAST_NAME-clevr-debug
 
 spec:
   restartPolicy: Never
